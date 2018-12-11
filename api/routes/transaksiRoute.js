@@ -1,0 +1,9 @@
+const express = require('express')
+const transaksiController = require('../controllers/transaksiController')
+
+const router = express.Router()
+
+router.get('/', transaksiController.ambilDataTransaksi)
+router.post('/', transaksiController.tambahDataTransaksi)
+
+module.exports = router
