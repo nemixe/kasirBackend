@@ -1,7 +1,8 @@
 const mongoose = require('mongoose')
 const transaksiModel = require('../models/transaksiModel')
 const bukuModel = require('../models/bukuModel')
-
+const checkoutModel = require('../models/checkoutModel')
+const { assign, pick } = require('lodash')
 
 module.exports = {
   ambilDataTransaksi: (req, res, next) => {
@@ -17,11 +18,9 @@ module.exports = {
           length: transaksi.length,
           payload: transaksi.map(buku => {
             return {
-              _id: buku.idBuku._id,
-              nama_buku: buku.idBuku.namaBuku,
-              kode: buku.idBuku.kode,
-              jumlah_transaksi: buku.idBuku.jumlahBuku
-
+              buku: buku,
+              idTransaksi: transaksi._id,
+              jumlah: transaksi.jumlah
             }
           })
         })
@@ -32,58 +31,148 @@ module.exports = {
         })
       })
   },
-
   tambahDataTransaksi: (req, res, next) => {
+    const IDcheckOut = new mongoose.Types.ObjectId()
 
-    const { id_buku, jumlah } = req.body
-
-    const transaksi = new transaksiModel({
-      _id: new mongoose.Types.ObjectId,
-      idBuku: id_buku,
-      jumlah: jumlah
+    const transaksis = req.body.map(data => {
+      const removeID = pick(data, ['idBuku', 'kode', 'jumlah'])
+      let payload = {
+        _id: new mongoose.Types.ObjectId(),
+        idBuku: mongoose.Types.ObjectId(data.idBuku),
+        idCheckout: IDcheckOut
+      }
+      return assign(removeID, payload)
     })
 
-    bukuModel.findOne({ _id: mongoose.Types.ObjectId(id_buku) })
-      .exec()
-      .then(buku => {
-        console.log(buku)
-        if (!buku) {
-          return res.status(404).json({
-            message: "Buku tidak tersedia"
-          })
-        }
+    const checkOut = new checkoutModel({
+      _id: IDcheckOut
+    })
 
-        if (buku.jumlahBuku < jumlah) {
-          return res.status(403).json({
-            message: "Stok buku tidak memenuhi jumlah permintaan"
-          })
-        }
-
-        const stock = buku.jumlahBuku - jumlah
-
-        bukuModel.updateOne({ _id: mongoose.Types.ObjectId(id_buku) }, { $set: { jumlahBuku: stock } }, (err, bukutrigger) => {
+    checkOut.save()// create checkout
+      .then(checkOut => {
+        let ids = []
+        transaksis.map(transaksi => {
+          ids = [...ids, transaksi.idBuku]
+        })
+        console.log(transaksis)
+        bukuModel.find({ _id: { $in: ids } }, (err, result) => { //find
           if (err) {
-            return res.status(500).json({
-              message: "Gagal mentrigger data buku"
+            console.log(checkOut._id)
+            checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
+              if (rmvError) {
+                return res.status(500).json({
+                  message: "Server error",
+                  removeError: rmvError,
+                  error: err
+                })
+              }
+              return res.status(500).json({
+                message: "Server error",
+                error: err
+              })
             })
           }
-          transaksi.save()
-            .then(transaksi => {
-              res.status(200).json({
-                message: "Sukses menambah data transaksi",
-                trigger: bukutrigger,
-                payload: transaksi
-              })
-            }).catch(err => {
-              res.status(500).json({
-                message: "Gagal menambah data transaksi",
-                erro: err
+
+          if (!result.length) {
+            checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
+              if (rmvError) {
+                return res.status(500).json({
+                  message: "Server error",
+                  removeError: rmvError,
+                  error: err
+                })
+              }
+              return res.status(404).json({
+                message: "Kode buku tidak tersedia",
               })
             })
+          }
+
+          let error = []
+          transaksis.map(transaksi => {
+            result.map(data => {
+              if (transaksi.kode == data.kode) {
+                if (transaksi.jumlah_buku > data.jumlahBuku) {
+                  error = [...error, "Jumlah buku dengan kode " + transaksi.kode + " tidak memenuhi permintaan"]
+                }
+              }
+            })
+          })
+
+          if (error.length) {
+            checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
+              if (rmvError) {
+                return res.status(500).json({
+                  message: "Server error",
+                  removeError: rmvError
+                })
+              }
+              return res.status(400).json({
+                message: error
+              })
+            })
+          } else {
+            transaksis.map(transaksi => {
+              result.map(data => {
+                if (transaksi.idBuku.equals(data._id)) {
+
+                  if (data.jumlahBuku < transaksi.jumlah) {
+                    return error = 403
+                  }
+                }
+              })
+            })
+          }
+
+          if (error === 403) {
+            return res.status(403).json({
+              message: "Stock buku tidak memenuhi kebutuhan"
+            })
+          }
+
+          transaksis.map(transaksi => {
+            result.map(data => {
+              if (transaksi.idBuku.equals(data._id)) {
+                let stock = data.jumlahBuku - transaksi.jumlah
+                bukuModel.updateOne({ _id: transaksi.idBuku }, { $set: { jumlahBuku: stock } }, (err, raw) => {
+                  if (err) {
+                    checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
+                      if (rmvError) {
+                        throw res.status(500).json({
+                          message: "Server error",
+                          removeError: rmvError,
+                          error: err
+                        })
+                      }
+                      throw res.status(500).json({
+                        message: "Server error",
+                        error: err
+                      })
+                    })
+                  }
+                })
+              }
+            })
+          })
+
+
+          console.log(transaksis)
+          transaksiModel.insertMany(transaksis, (err, transaksi) => {
+            if (err) {
+              return res.status(500).json({
+                message: "Server error",
+                error: err
+              })
+            }
+            res.status(200).json({
+              message: "Sukses menambah data transaksi",
+              payload: transaksi
+            })
+          })
+
         })
       }).catch(err => {
         res.status(500).json({
-          message: "Gagal menambah data",
           error: err
         })
       })

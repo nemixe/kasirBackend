@@ -3,7 +3,7 @@ const mongoose = require('mongoose')
 const bukuSchema = mongoose.Schema({
   _id: mongoose.Schema.Types.ObjectId,
   kode: {
-    type: Number,
+    type: String,
     unique: true,
     required: true
   },

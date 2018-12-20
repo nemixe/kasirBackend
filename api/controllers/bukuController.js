@@ -23,7 +23,7 @@ module.exports = {
   },
   ambilDataKode: (req, res, next) => {
     const { kode } = req.params
-    bukuModel.findOne({ kode })
+    bukuModel.find({ kode: { $regex: '.*' + kode + '.*' } })
       .exec()
       .then(buku => {
         if (!buku) {
@@ -31,8 +31,8 @@ module.exports = {
             message: "Data dengan id " + kode + " tidak dapat ditemukan"
           })
         }
+        console.log(buku)
         res.status(200).json({
-          message: "Buku dengan id " + kode + " ditemukan",
           payload: buku
         })
       }).catch(err => {
