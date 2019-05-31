@@ -54,10 +54,8 @@ module.exports = {
         transaksis.map(transaksi => {
           ids = [...ids, transaksi.idBuku]
         })
-        console.log(transaksis)
         bukuModel.find({ _id: { $in: ids } }, (err, result) => { //find
           if (err) {
-            console.log(checkOut._id)
             checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
               if (rmvError) {
                 return res.status(500).json({
@@ -138,13 +136,13 @@ module.exports = {
                   if (err) {
                     checkoutModel.deleteOne({ _id: checkOut._id }, rmvError => {
                       if (rmvError) {
-                        throw res.status(500).json({
+                        return res.status(500).json({
                           message: "Server error",
                           removeError: rmvError,
                           error: err
                         })
                       }
-                      throw res.status(500).json({
+                      return res.status(500).json({
                         message: "Server error",
                         error: err
                       })
@@ -155,8 +153,6 @@ module.exports = {
             })
           })
 
-
-          console.log(transaksis)
           transaksiModel.insertMany(transaksis, (err, transaksi) => {
             if (err) {
               return res.status(500).json({
